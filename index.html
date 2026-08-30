@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>INANE — Absolute Freedom</title>
+    <style>
+        body { background: #0a0a0a; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .chat-card { width: 380px; background: #111; padding: 25px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,255,200,0.2); border: 1px solid #222; text-align: center; }
+        h1 { color: #00ffcc; letter-spacing: 3px; margin-bottom: 5px; }
+        p { color: #666; font-size: 11px; margin-bottom: 20px; }
+        #messages { height: 200px; overflow-y: auto; background: #1a1a1a; border-radius: 8px; padding: 10px; text-align: left; margin-bottom: 15px; border: 1px solid #333; font-size: 14px; }
+        .msg { margin-bottom: 8px; word-break: break-all; }
+        .user { color: #00ffcc; font-weight: bold; }
+        input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #333; background: #222; color: #fff; box-sizing: border-box; outline: none; }
+        button { width: 100%; padding: 12px; background: #00ffcc; color: #000; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <div class="chat-card">
+        <h1>INANE</h1>
+        <p>ABSOLUTE FREEDOM // NO NUMBERS</p>
+        
+        <div id="messages"></div>
+
+        <input type="text" id="username" placeholder="Твой анонимный Ник (UIN)">
+        <input type="text" id="msgInput" placeholder="Напиши сообщение...">
+        <button onclick="sendMsg()">Отправить в Эфир</button>
+    </div>
+
+    <!-- Подключаем библиотеку Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const messagesDiv = document.getElementById('messages');
+
+        // Принимаем сообщение с сервера
+        socket.on('chat message', function(data) {
+            const item = document.createElement('div');
+            item.className = 'msg';
+            item.innerHTML = `<span class="user">${data.user}:</span> ${data.text}`;
+            messagesDiv.appendChild(item);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        // Функция отправки
+        function sendMsg() {
+            const user = document.getElementById('username').value || 'Аноним';
+            const text = document.getElementById('msgInput').value;
+            if (text.trim() !== '') {
+                socket.emit('chat message', { user: user, text: text });
+                document.getElementById('msgInput').value = '';
+            }
+        }
+    </script>
+</body>
+</html>
