@@ -2,56 +2,178 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>INANE — Absolute Freedom</title>
+    <title>INANE 2.0 — Absolute Freedom</title>
     <style>
-        body { background: #0a0a0a; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .chat-card { width: 380px; background: #111; padding: 25px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,255,200,0.2); border: 1px solid #222; text-align: center; }
-        h1 { color: #00ffcc; letter-spacing: 3px; margin-bottom: 5px; }
-        p { color: #666; font-size: 11px; margin-bottom: 20px; }
-        #messages { height: 200px; overflow-y: auto; background: #1a1a1a; border-radius: 8px; padding: 10px; text-align: left; margin-bottom: 15px; border: 1px solid #333; font-size: 14px; }
-        .msg { margin-bottom: 8px; word-break: break-all; }
-        .user { color: #00ffcc; font-weight: bold; }
-        input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #333; background: #222; color: #fff; box-sizing: border-box; outline: none; }
-        button { width: 100%; padding: 12px; background: #00ffcc; color: #000; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase; }
+        body {
+            background: #0a0a0a;
+            color: #fff;
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .chat-card {
+            width: 400px;
+            background: #111;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 0 25px rgba(0,255,200,0.25);
+            border: 1px solid #222;
+            text-align: center;
+        }
+        h1 {
+            color: #00ffcc;
+            letter-spacing: 3px;
+            margin: 0 0 5px 0;
+        }
+        p {
+            color: #666;
+            font-size: 11px;
+            margin-bottom: 20px;
+        }
+        #online-box {
+            font-size: 12px;
+            color: #00ffcc;
+            margin-bottom: 10px;
+            text-align: left;
+            background: #161616;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #222;
+        }
+        #messages {
+            height: 220px;
+            overflow-y: auto;
+            background: #161616;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: left;
+            margin-bottom: 15px;
+            border: 1px solid #222;
+            font-size: 13px;
+        }
+        .msg {
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+        .user {
+            color: #00ffcc;
+            font-weight: bold;
+        }
+        .private-tag {
+            background: #ff0055;
+            color: #fff;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #222;
+            color: #fff;
+            box-sizing: border-box;
+            outline: none;
+            font-size: 13px;
+        }
+        input:focus {
+            border-color: #00ffcc;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #00ffcc;
+            color: #000;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        button:hover {
+            background: #00cca3;
+        }
     </style>
 </head>
 <body>
-
     <div class="chat-card">
-        <h1>INANE</h1>
-        <p>ABSOLUTE FREEDOM // NO NUMBERS</p>
-        
+        <h1>INANE 2.0</h1>
+        <p>ABSOLUTE FREEDOM // DIRECT MESSAGES</p>
+        <div id="online-box">🟢 В сети: <span id="users-list">загрузка...</span></div>
         <div id="messages"></div>
-
-        <input type="text" id="username" placeholder="Твой анонимный Ник (UIN)">
+        <input type="text" id="username" placeholder="Твой Ник (нажми Enter)" onchange="registerMe()">
+        <input type="text" id="targetUser" placeholder="Кому (Ник кента для ЛИЧКИ) или пусто для общего">
         <input type="text" id="msgInput" placeholder="Напиши сообщение...">
-        <button onclick="sendMsg()">Отправить в Эфир</button>
+        <button onclick="sendMsg()">Отправить</button>
     </div>
 
-    <!-- Подключаем библиотеку Socket.io -->
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         const messagesDiv = document.getElementById('messages');
+        const usersListSpan = document.getElementById('users-list');
+        const msgInput = document.getElementById('msgInput');
+        const targetUserInput = document.getElementById('targetUser');
 
-        // Принимаем сообщение с сервера
+        function registerMe() {
+            const myNick = document.getElementById('username').value.trim();
+            if (myNick) {
+                socket.emit('register user', myNick);
+            }
+        }
+
+        socket.on('update users', function(usersArray) {
+            usersListSpan.innerHTML = usersArray.join(', ');
+        });
+
         socket.on('chat message', function(data) {
             const item = document.createElement('div');
             item.className = 'msg';
-            item.innerHTML = `<span class="user">${data.user}:</span> ${data.text}`;
+            if (data.isPrivate) {
+                if (data.to) {
+                    item.innerHTML = `<span class="private-tag">ЛИЧКА ДЛЯ ${data.to}</span> <span class="user">${data.sender}:</span> ${data.text}`;
+                } else {
+                    item.innerHTML = `<span class="private-tag">ЛИЧКА</span> <span class="user">${data.sender}:</span> ${data.text}`;
+                }
+            } else {
+                item.innerHTML = `<span class="user">${data.sender}:</span> ${data.text}`;
+            }
             messagesDiv.appendChild(item);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         });
 
-        // Функция отправки
         function sendMsg() {
-            const user = document.getElementById('username').value || 'Аноним';
-            const text = document.getElementById('msgInput').value;
-            if (text.trim() !== '') {
-                socket.emit('chat message', { user: user, text: text });
-                document.getElementById('msgInput').value = '';
+            const text = msgInput.value.trim();
+            const target = targetUserInput.value.trim();
+
+            if (!text) return; // Не шлем пустоту
+
+            if (target) {
+                // Шлем в личку объект { to, text }
+                socket.emit('private message', { to: target, text: text });
+            } else {
+                // Шлем в общий чат просто строку-текст
+                socket.emit('chat message', text);
             }
+
+            msgInput.value = ''; // Чистим поле
         }
+
+        // Отправка по кнопке Enter
+        msgInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMsg();
+            }
+        });
     </script>
 </body>
 </html>
+
