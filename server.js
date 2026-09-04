@@ -1,29 +1,73 @@
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+
 const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const server = http.createServer(app);
+const io = new Server(server);
 
-// Раздаем статические файлы (включая index.html) из текущей папки
-app.use(express.static(__dirname));
+// 1. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ И МОДЕЛЬ MESSAGES
+mongoose.connect('mongodb://localhost:27017/chatDB') // Замените на вашу строку подключения, если нужно
+    .then(() => console.log('Успешное подключение к MongoDB'))
+    .catch(err => console.error('Ошибка подключения к MongoDB:', err));
 
-// Хранилище подключенных юзеров: { "Ник": "id_сокета" }
+const messageSchema = new mongoose.Schema({
+    sender: String,
+    to: String,         // Заполняется только для приватных сообщений
+    text: String,
+    isPrivate: Boolean,
+    timestamp: { type: Date, default: Date.now }
+});
+const Message = mongoose.model('Message', messageSchema);
+
+// Хранилище активных пользователей: { 'имя_пользователя': 'socket.id' }
 const users = {};
 
-io.on('connection', (socket) => {
-    console.log('🟢 Новое подключение к INANE');
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/index.html');
+});
 
-    // Регистрация ника юзера на сервере
-    socket.on('register user', (username) => {
+io.on('connection', (socket) => {
+    console.log('Новое сокет-подключение:', socket.id);
+
+    // Авторизация пользователя при входе
+    socket.on('register user', async (username) => {
+        if (!username) return;
+        
         socket.username = username;
         users[username] = socket.id;
-        console.log(`👤 Юзер ${username} в сети (ID: ${socket.id})`);
+
+        // Обновляем список пользователей онлайн для всех
         io.emit('update users', Object.keys(users));
+        console.log(`Пользователь зарегистрирован: ${username} (${socket.id})`);
+
+        // ШАГ 2: ЗАГРУЗКА ИСТОРИИ ИЗ БАЗЫ ДАННЫХ ПРИ ВХОДЕ!
+        try {
+            // Достаем сообщения: либо публичные, либо приватные, где текущий юзер — отправитель или получатель
+            const history = await Message.find({
+                $or: [
+                    { isPrivate: false },
+                    { isPrivate: true, sender: username },
+                    { isPrivate: true, to: username }
+                ]
+            }).sort({ timestamp: 1 }).limit(100); // Ограничим последними 100 сообщениями
+
+            // Отправляем историю только вошедшему пользователю
+            socket.emit('chat history', history);
+        } catch (err) {
+            console.error('Ошибка загрузки истории:', err);
+        }
     });
 
-    // 1. Обработка ОБЩИХ сообщений (из эфира)
-    socket.on('chat message', (text) => {
+    // 1. ОБЩИЙ ЧАТ
+    socket.on('general message', async (data) => {
         const senderName = socket.username || 'Аноним';
-        
+        const text = data.text;
+
+        const newMsg = new Message({ sender: senderName, text: text, isPrivate: false });
+        await newMsg.save();
+
         io.emit('chat message', {
             sender: senderName,
             text: text,
@@ -31,50 +75,57 @@ io.on('connection', (socket) => {
         });
     });
 
-    // 2. Обработка ПРИВАТНЫХ сообщений (личка)
-    socket.on('private message', (data) => {
+    // 2. ПРИВАТНЫЕ ЛИЧКИ
+    socket.on('private message', async (data) => {
         const senderName = socket.username || 'Аноним';
-        const targetSocketId = users[data.to]; // Ищем ID сокета по нику получателя
-        
+
+        // Сохраняем ЛИЧКУ в полную базу НАВСЕГДА!
+        const newMsg = new Message({
+            sender: senderName,
+            to: data.to,
+            text: data.text,
+            isPrivate: true
+        });
+        await newMsg.save();
+
+        const targetSocketId = users[data.to];
+
         if (targetSocketId) {
-            // Отправляем получателю
+            // Личка получателю
             io.to(targetSocketId).emit('chat message', {
                 sender: senderName,
                 text: data.text,
                 isPrivate: true
             });
-            
-            // Если пишем не самому себе, отображаем и у отправителя в чате
+
+            // Показываем у себя
             if (socket.id !== targetSocketId) {
                 socket.emit('chat message', {
                     sender: senderName,
                     text: data.text,
                     isPrivate: true,
-                    to: data.to // Чтобы на фронтенде загорелся тег "ЛИЧКА ДЛЯ..."
+                    to: data.to
                 });
             }
         } else {
-            // Если юзер не найден или оффлайн — шлем системную ошибку отправителю
+            // Если юзер оффлайн - сообщение все равно в базе!
             socket.emit('chat message', {
                 sender: 'СИСТЕМА',
-                text: `Юзер "${data.to}" не найден или оффлайн!`,
+                text: `Юзер "${data.to}" сейчас оффлайн, но сообщение СОХРАНЕНО В БАЗУ и прилетит ему при входе`,
                 isPrivate: true
             });
         }
     });
 
-    // Обработка отключения юзера
     socket.on('disconnect', () => {
         if (socket.username) {
             delete users[socket.username];
             io.emit('update users', Object.keys(users));
-            console.log(`🔴 Юзер ${socket.username} вышел`);
+            console.log(`User ${socket.username} вышел`);
         }
     });
 });
 
-// Настройка порта (для локального запуска и для деплоя на Render/Heroku)
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-    console.log(`🚀 INANE 2.0 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ${PORT}`);
+server.listen(3000, () => {
+    console.log('Сервер запущен на http://localhost:3000');
 });
