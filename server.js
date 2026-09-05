@@ -1,24 +1,22 @@
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
-const socketIo = require("socket.io");
-const mongoose = require("mongoose");
-
+const express = require('express');
 const app = express();
-app.use(cors());
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
+const mongoose = require('mongoose');
 
-const server = http.createServer(app);
-const io = socketIo(server);
+// Исправлено: __dirname пишется с двумя подчеркиваниями
+app.use(express.static(__dirname));
 
-// УНИВЕРСАЛЬНЫЙ СТРОКОВЫЙ КЛЮЧ-ДАТАБАЗ:
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://admin:yW9wKmK3RNwKzq8b@cluster0.p7bd8.mongodb.net/chatDB?retryWrites=true&w=majority&appName=Cluster0";
+// ПОДКЛЮЧЕНИЕ К ТВОЕЙ ВЕЧНОЙ БАЗЕ MONGODB ATLAS
+// Исправлено: имя переменной приведено к единому стилю DB_URL
+const DB_URL = process.env.MONGOURI || "mongodb+srv://grokmacedonyssdbuser:KDlPb05wGoMo9wIG@cluster0.lsmjb1n.mongodb.net/inanedb?retryWrites=true&w=majority&appName=Cluster0";
 
-mongoose.connect(MONGO_URI)
-    .then(() => console.log('🚀 БАЗА MONGODB ПОДКЛЮЧЕНА УСПЕШНО!'))
+mongoose.connect(DB_URL)
+    .then(() => console.log('🏛️ ВЕЧНАЯ БАЗА MONGODB ПОДКЛЮЧЕНА УСПЕШНО!'))
     .catch(err => console.log('❌ Ошибка базы:', err));
 
-// Схема сообщений для базы данных
-const messageSchema = new mongoose.Schema({
+// Схема хранения сообщений в базе
+const MessageSchema = new mongoose.Schema({
     sender: String,
     to: String,
     text: String,
@@ -26,26 +24,24 @@ const messageSchema = new mongoose.Schema({
     timestamp: { type: Date, default: Date.now }
 });
 
-const Message = mongoose.model('Message', messageSchema);
+const Message = mongoose.model('Message', MessageSchema);
 
 // Хранилище юзеров в сети
 const users = {};
 
 io.on('connection', (socket) => {
-    console.log(`🟢 Новое сокет-подключение: ${socket.id}`);
+    console.log('🟢 Новое подключение к INANE 3.0');
 
-    // Регистрация юзера и выгрузка ЛИЧНОЙ истории
+    // Регистрация юзера и выгрузка ВЕЧНОЙ ИСТОРИИ
     socket.on('register user', async (username) => {
         if (!username) return;
         socket.username = username;
         users[username] = socket.id;
-
-        console.log(`👤 Юзер "${username}" в сети (ID: ${socket.id})`);
-
-        // Обновляем список пользователей
+        console.log('👤 Юзер ' + username + ' в сети');
+        
         io.emit('update users', Object.keys(users));
 
-        // Выгружаем из базы все лички и сообщения
+        // Выгружаем из базы ВСЕ лички и сообщения
         try {
             if (mongoose.connection.readyState === 1) {
                 const history = await Message.find({
@@ -56,47 +52,47 @@ io.on('connection', (socket) => {
                     ]
                 }).sort({ timestamp: 1 }).limit(100);
 
-                socket.emit('chat history', history);
+                socket.emit('load history', history);
             }
         } catch (e) {
-            console.log('Ошибка выгрузки истории:', e);
+            console.log("Ошибка выгрузки истории:", e);
         }
     });
 
     // 1. ОБЩИЕ СООБЩЕНИЯ
     socket.on('chat message', async (text) => {
+        // Исправлено: добавлен оператор ||
         const senderName = socket.username || 'Аноним';
-
-        // Живая отправка в чат, чтобы не было лагов!
+        
+        // Сразу отправляем в чат!
         io.emit('chat message', {
             sender: senderName,
             text: text,
             isPrivate: false
         });
 
-        // Сохранение в базу на фоне
+        // Сохраняем в базу на фоне
         try {
             if (mongoose.connection.readyState === 1) {
                 const newMsg = new Message({ sender: senderName, text: text, isPrivate: false });
                 await newMsg.save();
             }
-        } catch (e) { console.log(e); }
+        } catch(e) { console.log(e); }
     });
 
     // 2. ПРИВАТНЫЕ ЛИЧКИ
     socket.on('private message', async (data) => {
+        // Исправлено: добавлен оператор ||
         const senderName = socket.username || 'Аноним';
         const targetSocketId = users[data.to];
 
         if (targetSocketId) {
-            // Личка получателю
             io.to(targetSocketId).emit('chat message', {
                 sender: senderName,
                 text: data.text,
                 isPrivate: true
             });
-
-            // Показываем у себя
+            
             if (socket.id !== targetSocketId) {
                 socket.emit('chat message', {
                     sender: senderName,
@@ -106,38 +102,37 @@ io.on('connection', (socket) => {
                 });
             }
         } else {
-            // Личка себе (ответ системы)
             socket.emit('chat message', {
                 sender: 'СИСТЕМА',
-                text: `Юзер "${data.to}" сейчас оффлайн, но сообщение СОХРАНЕНО В БАЗУ и прилетит ему при входе!`,
+                text: 'Юзер "' + data.to + '" сейчас оффлайн, но сообщение СОХРАНЕНО В БАЗУ!',
                 isPrivate: true
             });
         }
 
-        // Сохраняем личку в базу на фоне
+        // Сохраняем ЛИЧКУ в базу на фоне
         try {
             if (mongoose.connection.readyState === 1) {
-                const newMsg = new Message({
-                    sender: senderName,
-                    to: data.to,
-                    text: data.text,
-                    isPrivate: true
+                const newMsg = new Message({ 
+                    sender: senderName, 
+                    to: data.to, 
+                    text: data.text, 
+                    isPrivate: true 
                 });
                 await newMsg.save();
             }
-        } catch (e) { console.log(e); }
+        } catch(e) { console.log(e); }
     });
 
     socket.on('disconnect', () => {
         if (socket.username) {
             delete users[socket.username];
             io.emit('update users', Object.keys(users));
-            console.log(`❌ Юзер "${socket.username}" вышел из сети.`);
+            console.log('🔴 Юзер ' + socket.username + ' вышел');
         }
     });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🔥 INANE 3.0 СЕРВЕР ЗАПУЩЕН НА ПОРТУ [${PORT}]`);
+http.listen(PORT, () => {
+    console.log('🚀 INANE 3.0 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ' + PORT);
 });
