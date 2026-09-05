@@ -6,144 +6,99 @@ const mongoose = require('mongoose');
 
 app.use(express.static(__dirname));
 
-// ПОДКЛЮЧЕНИЕ К ТВОЕЙ ВЕЧНОЙ БАЗЕ MONGODB ATLAS
+// ПОДКЛЮЧЕНИЕ К ВЕЧНОЙ БАЗЕ MONGODB ATLAS
 const DB_URL = process.env.MONGO_URI || "mongodb+srv://grokmacedonyss_db_user:KDlPb05wGoMo9wIG@cluster0.lsmjb1n.mongodb.net/inane_db?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(DB_URL)
     .then(() => console.log('🏛️ ВЕЧНАЯ БАЗА MONGODB ПОДКЛЮЧЕНА УСПЕШНО!'))
     .catch(err => console.log('❌ Ошибка базы:', err));
 
-// Схема хранения сообщений в базе
+// Схема сообщений
 const MessageSchema = new mongoose.Schema({
     sender: String,
     to: String,
     text: String,
-    isPrivate: Boolean,
     timestamp: { type: Date, default: Date.now }
 });
 
 const Message = mongoose.model('Message', MessageSchema);
-
-// Хранилище юзеров в сети
 const users = {};
 
-io.on('connection', async (socket) => {
-    console.log('🟢 Новое подключение к INANE 3.0');
+io.on('connection', (socket) => {
+    console.log('🟢 Новое подключение');
 
-    // СРАЗУ ПРИ ВХОДЕ ВЫГРУЖАЕМ ОБЩУЮ ИСТОРИЮ (публичные сообщения)
-    try {
-        if (mongoose.connection.readyState === 1) {
-            const publicHistory = await Message.find({ isPrivate: false })
-                .sort({ timestamp: 1 })
-                .limit(100);
-            
-            socket.emit('load history', publicHistory);
-        }
-    } catch (e) {
-        console.log("Ошибка выгрузки общей истории при подключении:", e);
-    }
+    // Сразу при подключении отдаем текущих пользователей онлайн
+    socket.emit('update users', Object.keys(users));
 
-    // Регистрация юзера и довыгрузка ПРИВАТНОЙ ИСТОРИИ
-    socket.on('register user', async (username) => {
+    socket.on('register user', (username) => {
         if (!username) return;
-        
         socket.username = username;
         users[username] = socket.id;
-        console.log('👤 Юзер ' + username + ' в сети');
-        
         io.emit('update users', Object.keys(users));
+    });
 
-        // Выгружаем только приватные сообщения, связанные с этим пользователем
+    // ВЫГРУЗКА ИСТОРИИ ДЛЯ КОНКРЕТНОГО ЧАТА!
+    socket.on('get history', async (data) => {
+        const myNick = socket.username || data.myNick;
+        const target = data.target;
+
         try {
-            if (mongoose.connection.readyState === 1) {
-                const privateHistory = await Message.find({
-                    isPrivate: true,
+            let query = {};
+            if (target === 'GLOBAL') {
+                query = { to: 'GLOBAL' };
+            } else {
+                query = {
                     $or: [
-                        { sender: username },
-                        { to: username }
+                        { sender: myNick, to: target },
+                        { sender: target, to: myNick }
                     ]
-                }).sort({ timestamp: 1 }).limit(100);
-
-                // Отправляем приватную историю. Фронтенд просто дорендерит её сверху или снизу
-                socket.emit('load history', privateHistory);
+                };
             }
+
+            const history = await Message.find(query).sort({ timestamp: 1 }).limit(100);
+            socket.emit('load history', { target: target, history: history });
         } catch (e) {
-            console.log("Ошибка выгрузки личной истории:", e);
+            console.log("Ошибка истории:", e);
         }
     });
 
-    // 1. ОБЩИЕ СООБЩЕНИЯ
-    socket.on('chat message', async (text) => {
-        const senderName = socket.username || 'Аноним';
-        
-        // Сразу отправляем в чат!
-        io.emit('chat message', {
+    // ОТПРАВКА СООБЩЕНИЯ (В ОБЩИЙ ИЛИ ЛИЧКУ)
+    socket.on('send message', async (data) => {
+        const senderName = socket.username || data.sender || 'Аноним';
+        const msgData = {
             sender: senderName,
-            text: text,
-            isPrivate: false
-        });
+            to: data.to,
+            text: data.text,
+            timestamp: new Date()
+        };
 
-        // Сохраняем в базу на фоне
+        // Сохраняем в вечную базу!
         try {
-            if (mongoose.connection.readyState === 1) {
-                const newMsg = new Message({ sender: senderName, text: text, isPrivate: false });
-                await newMsg.save();
-            }
+            const newMsg = new Message(msgData);
+            await newMsg.save();
         } catch(e) { console.log(e); }
-    });
 
-    // 2. ПРИВАТНЫЕ ЛИЧКИ
-    socket.on('private message', async (data) => {
-        const senderName = socket.username || 'Аноним';
-        const targetSocketId = users[data.to];
-
-        if (targetSocketId) {
-            io.to(targetSocketId).emit('chat message', {
-                sender: senderName,
-                text: data.text,
-                isPrivate: true
-            });
-            
-            if (socket.id !== targetSocketId) {
-                socket.emit('chat message', {
-                    sender: senderName,
-                    text: data.text,
-                    isPrivate: true,
-                    to: data.to
-                });
-            }
+        if (data.to === 'GLOBAL') {
+            io.emit('new message', msgData);
         } else {
-            socket.emit('chat message', {
-                sender: 'СИСТЕМА',
-                text: 'Юзер "' + data.to + '" сейчас оффлайн, но сообщение СОХРАНЕНО В БАЗУ!',
-                isPrivate: true
-            });
-        }
-
-        // Сохраняем ЛИЧКУ в базу на фоне
-        try {
-            if (mongoose.connection.readyState === 1) {
-                const newMsg = new Message({ 
-                    sender: senderName, 
-                    to: data.to, 
-                    text: data.text, 
-                    isPrivate: true 
-                });
-                await newMsg.save();
+            // Шлем только получателю и отправителю!
+            const targetSocketId = users[data.to];
+            if (targetSocketId) {
+                io.to(targetSocketId).emit('new message', msgData);
             }
-        } catch(e) { console.log(e); }
+            socket.emit('new message', msgData);
+        }
     });
 
     socket.on('disconnect', () => {
         if (socket.username) {
             delete users[socket.username];
             io.emit('update users', Object.keys(users));
-            console.log('🔴 Юзер ' + socket.username + ' вышел');
         }
     });
 });
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
-    console.log('🚀 INANE 3.0 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ' + PORT);
+    console.log('🚀 INANE 4.0 СЕРВЕР ЗАПУЩЕН НА ПОРТУ ' + PORT);
 });
