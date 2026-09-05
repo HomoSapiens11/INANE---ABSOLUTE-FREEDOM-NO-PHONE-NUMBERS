@@ -12,7 +12,6 @@
         #messages { height: 250px; overflow-y: auto; background: #161616; border-radius: 8px; padding: 10px; text-align: left; margin-bottom: 15px; border: 1px solid #222; font-size: 13px; }
         .msg { margin-bottom: 8px; word-break: break-all; }
         .user { color: #00ffcc; font-weight: bold; }
-        .system-user { color: #ffb142; font-weight: bold; }
         .private-tag { background: #ff0055; color: #fff; padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: bold; margin-right: 5px; }
         input { width: 100%; padding: 10px; margin-bottom: 8px; border-radius: 8px; border: 1px solid #333; background: #222; color: #fff; box-sizing: border-box; outline: none; font-size: 13px; }
         input:focus { border-color: #00ffcc; }
@@ -40,23 +39,27 @@
         const socket = io();
         const messagesDiv = document.getElementById('messages');
         const usersListSpan = document.getElementById('users-list');
+        
+        // Хранилище ID отображенных сообщений для предотвращения дублирования
+        const renderedMessageIds = new Set();
 
-        // Авто-регистрация при входе
         function initUser() {
             const myNick = document.getElementById('username').value.trim() || 'Аноним';
             socket.emit('register user', myNick);
         }
 
+        // Авторизация при смене ника и при первой загрузке страницы
         document.getElementById('username').addEventListener('change', initUser);
-        setTimeout(initUser, 1000); // Автоподключение через 1 сек
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(initUser, 500);
+        });
 
         socket.on('update users', function(usersArray) {
             usersListSpan.innerHTML = usersArray.join(', ');
         });
 
-        // Исправлено: Удален мусорный текст нейросети, мешавший работе скрипта
+        // Загрузка ВЕЧНОЙ истории из MongoDB без дублирования
         socket.on('load history', function(historyArray) {
-            messagesDiv.innerHTML = '';
             if (Array.isArray(historyArray)) {
                 historyArray.forEach(data => renderMessage(data));
             }
@@ -69,13 +72,18 @@
         function renderMessage(data) {
             if (!data || !data.text) return;
             
+            // Если у сообщения есть id базы данных (_id), проверяем его во избежание дубликатов
+            if (data._id) {
+                if (renderedMessageIds.has(data._id)) return;
+                renderedMessageIds.add(data._id);
+            }
+            
             const item = document.createElement('div');
             item.className = 'msg';
             
             if (data.isPrivate) {
                 if (data.sender === 'СИСТЕМА') {
-                    // Красивый вывод системных предупреждений о доставке приваток
-                    item.innerHTML = `<span class="private-tag" style="background:#ffb142;">СИСТЕМА</span> <span class="system-user">${data.text}</span>`;
+                    item.innerHTML = `<span class="private-tag" style="background:#ffb142;">СИСТЕМА</span> <span style="color:#ffb142;">${data.text}</span>`;
                 } else {
                     const targetText = data.to ? ` ДЛЯ ${data.to}` : '';
                     item.innerHTML = `<span class="private-tag">ЛИЧКА${targetText}</span> <span class="user">${data.sender || 'Аноним'}:</span> ${data.text}`;
@@ -94,8 +102,6 @@
             const text = input.value.trim();
 
             if (text !== '') {
-                // Исправлено: Удален лишний дублирующий socket.emit('register user'), вызывавший перезагрузку истории
-
                 if (target !== '') {
                     socket.emit('private message', { to: target, text: text });
                 } else {
@@ -106,7 +112,6 @@
             }
         }
 
-        // Отправка по кнопке Enter
         document.getElementById('msgInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
                 sendMsg();
