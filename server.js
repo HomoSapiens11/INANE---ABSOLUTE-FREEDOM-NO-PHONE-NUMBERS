@@ -4,12 +4,10 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const mongoose = require('mongoose');
 
-// Исправлено: __dirname пишется с двумя подчеркиваниями
 app.use(express.static(__dirname));
 
 // ПОДКЛЮЧЕНИЕ К ТВОЕЙ ВЕЧНОЙ БАЗЕ MONGODB ATLAS
-// Исправлено: имя переменной приведено к единому стилю DB_URL
-const DB_URL = process.env.MONGOURI || "mongodb+srv://grokmacedonyssdbuser:KDlPb05wGoMo9wIG@cluster0.lsmjb1n.mongodb.net/inanedb?retryWrites=true&w=majority&appName=Cluster0";
+const DB_URL = process.env.MONGO_URI || "mongodb+srv://grokmacedonyss_db_user:KDlPb05wGoMo9wIG@cluster0.lsmjb1n.mongodb.net/inane_db?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(DB_URL)
     .then(() => console.log('🏛️ ВЕЧНАЯ БАЗА MONGODB ПОДКЛЮЧЕНА УСПЕШНО!'))
@@ -29,39 +27,53 @@ const Message = mongoose.model('Message', MessageSchema);
 // Хранилище юзеров в сети
 const users = {};
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
     console.log('🟢 Новое подключение к INANE 3.0');
 
-    // Регистрация юзера и выгрузка ВЕЧНОЙ ИСТОРИИ
+    // СРАЗУ ПРИ ВХОДЕ ВЫГРУЖАЕМ ОБЩУЮ ИСТОРИЮ (публичные сообщения)
+    try {
+        if (mongoose.connection.readyState === 1) {
+            const publicHistory = await Message.find({ isPrivate: false })
+                .sort({ timestamp: 1 })
+                .limit(100);
+            
+            socket.emit('load history', publicHistory);
+        }
+    } catch (e) {
+        console.log("Ошибка выгрузки общей истории при подключении:", e);
+    }
+
+    // Регистрация юзера и довыгрузка ПРИВАТНОЙ ИСТОРИИ
     socket.on('register user', async (username) => {
         if (!username) return;
+        
         socket.username = username;
         users[username] = socket.id;
         console.log('👤 Юзер ' + username + ' в сети');
         
         io.emit('update users', Object.keys(users));
 
-        // Выгружаем из базы ВСЕ лички и сообщения
+        // Выгружаем только приватные сообщения, связанные с этим пользователем
         try {
             if (mongoose.connection.readyState === 1) {
-                const history = await Message.find({
+                const privateHistory = await Message.find({
+                    isPrivate: true,
                     $or: [
-                        { isPrivate: false },
                         { sender: username },
                         { to: username }
                     ]
                 }).sort({ timestamp: 1 }).limit(100);
 
-                socket.emit('load history', history);
+                // Отправляем приватную историю. Фронтенд просто дорендерит её сверху или снизу
+                socket.emit('load history', privateHistory);
             }
         } catch (e) {
-            console.log("Ошибка выгрузки истории:", e);
+            console.log("Ошибка выгрузки личной истории:", e);
         }
     });
 
     // 1. ОБЩИЕ СООБЩЕНИЯ
     socket.on('chat message', async (text) => {
-        // Исправлено: добавлен оператор ||
         const senderName = socket.username || 'Аноним';
         
         // Сразу отправляем в чат!
@@ -82,7 +94,6 @@ io.on('connection', (socket) => {
 
     // 2. ПРИВАТНЫЕ ЛИЧКИ
     socket.on('private message', async (data) => {
-        // Исправлено: добавлен оператор ||
         const senderName = socket.username || 'Аноним';
         const targetSocketId = users[data.to];
 
