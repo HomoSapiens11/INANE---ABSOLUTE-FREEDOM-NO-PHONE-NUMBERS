@@ -2,196 +2,176 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>INANE 4.0 — Telegram Edition</title>
+    <title>INANE Чат</title>
+    <!-- Подключаем клиентскую библиотеку Socket.io -->
+    <script src="/socket.io/socket.io.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #0e0e10; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        
-        .app-container { width: 900px; height: 600px; background: #18181c; border-radius: 16px; border: 1px solid #2a2a30; display: flex; overflow: hidden; box-shadow: 0 0 40px rgba(0, 255, 204, 0.15); }
-        
-        /* БОКОВАЯ ПАНЕЛЬ (ЧАТЫ) */
-        .sidebar { width: 280px; background: #121215; border-right: 1px solid #2a2a30; display: flex; flex-direction: column; }
-        .profile-box { padding: 15px; border-bottom: 1px solid #2a2a30; background: #18181c; }
-        .profile-box input { width: 100%; padding: 8px 12px; background: #222228; border: 1px solid #33333d; border-radius: 8px; color: #00ffcc; font-weight: bold; outline: none; }
-        
-        .chats-list { flex: 1; overflow-y: auto; }
-        .chat-item { padding: 14px 18px; border-bottom: 1px solid #1c1c22; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: space-between; }
-        .chat-item:hover, .chat-item.active { background: #00ffcc22; border-left: 4px solid #00ffcc; }
-        .chat-name { font-weight: bold; font-size: 14px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 160px; }
-        .online-tag { font-size: 10px; color: #00ffcc; background: #00ffcc11; padding: 2px 6px; border-radius: 10px; font-weight: bold; }
-
-        /* ОКНО СООБЩЕНИЙ */
-        .main-chat { flex: 1; display: flex; flex-direction: column; background: #16161a; }
-        .chat-header { padding: 15px 20px; background: #18181c; border-bottom: 1px solid #2a2a30; font-weight: bold; color: #00ffcc; display: flex; justify-content: space-between; align-items: center; }
-        
-        .messages-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-        
-        .msg { max-width: 70%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.4; word-break: break-word; position: relative; }
-        .msg.my { align-self: flex-end; background: #00c896; color: #000; border-bottom-right-radius: 2px; font-weight: 500; }
-        .msg.their { align-self: flex-start; background: #26262e; color: #fff; border-bottom-left-radius: 2px; border: 1px solid #33333d; }
-        .msg-author { font-size: 10px; opacity: 0.7; margin-bottom: 3px; font-weight: bold; }
-
-        .input-area { padding: 15px; background: #18181c; border-top: 1px solid #2a2a30; display: flex; gap: 10px; }
-        .input-area input { flex: 1; padding: 12px; background: #222228; border: 1px solid #33333d; border-radius: 10px; color: #fff; outline: none; }
-        .input-area input:focus { border-color: #00ffcc; }
-        .input-area button { padding: 12px 20px; background: #00ffcc; color: #000; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; text-transform: uppercase; }
-        .input-area button:hover { background: #00cca3; }
+        body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; }
+        #sidebar { width: 250px; background: #f0f0f0; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
+        #chat-area { flex: 1; display: flex; flex-direction: column; }
+        #usersList { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
+        #usersList li { padding: 10px; cursor: pointer; border-bottom: 1px solid #ddd; }
+        #usersList li.active { background: #007bff; color: white; }
+        #messages { flex: 1; padding: 20px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; }
+        .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 8px; max-width: 70%; word-wrap: break-word; }
+        .msg.my { background: #dcf8c6; align-self: flex-end; }
+        .msg.their { background: #fff; align-self: flex-start; border: 1px solid #eee; }
+        .msg-author { font-weight: bold; font-size: 0.8em; color: #555; margin-bottom: 4px; }
+        #input-panel { padding: 10px; display: flex; border-top: 1px solid #ccc; }
+        #msgInput { flex: 1; padding: 10px; }
+        #sendBtn { padding: 10px 20px; }
+        #auth-panel { padding: 10px; border-bottom: 1px solid #ccc; }
     </style>
 </head>
 <body>
 
-    <div class="app-container">
-        <!-- БОКОВАЯ ПАНЕЛЬ С ЧАТАМИ -->
-        <div class="sidebar">
-            <div class="profile-box">
-                <input type="text" id="username" value="HomoSapiens11" placeholder="Твой Ник" onchange="registerMe()">
-            </div>
-            <div class="chats-list" id="chats-list">
-                <div class="chat-item active" id="chat-GLOBAL" onclick="switchChat('GLOBAL')">
-                    <span class="chat-name">🌐 ОБЩИЙ ЧАТ</span>
-                </div>
-            </div>
+    <!-- Боковая панель с пользователями -->
+    <div id="sidebar">
+        <div id="auth-panel">
+            <input type="text" id="usernameInput" placeholder="Ваш ник..." />
+            <button id="loginBtn" onclick="register()">Войти</button>
         </div>
+        <h3 style="padding: 0 10px;">Чаты</h3>
+        <ul id="usersList">
+            <!-- По умолчанию всегда есть Общий чат -->
+            <li id="global-chat-item" class="active" onclick="switchChat('GLOBAL')">🌐 ОБЩИЙ ЧАТ</li>
+        </ul>
+    </div>
 
-        <!-- ОКНО ТЕКУЩЕГО ЧАТА -->
-        <div class="main-chat">
-            <div class="chat-header">
-                <span id="current-chat-title">🌐 ОБЩИЙ ЧАТ</span>
-                <span style="font-size: 11px; color: #666;">INANE 4.0 // ETERNAL</span>
-            </div>
-            <div class="messages-box" id="messages"></div>
-            
-            <div class="input-area">
-                <input type="text" id="msgInput" placeholder="Напишите сообщение...">
-                <button onclick="sendMsg()">Отправить</button>
-            </div>
+    <!-- Область чата -->
+    <div id="chat-area">
+        <h2 id="currentChatTitle" style="padding: 10px; margin: 0; background: #eee;">Чат: Глобальный</h2>
+        <div id="messages"></div>
+        <div id="input-panel">
+            <input type="text" id="msgInput" placeholder="Введите сообщение..." disabled />
+            <button id="sendBtn" onclick="sendMsg()" disabled>Отправить</button>
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
-        let currentChat = 'GLOBAL';
-        let onlineUsers = [];
+        const socket = io(); // Инициализация сокета
+        let currentChat = 'GLOBAL'; // Текущая комната по умолчанию
+        const usernameInput = document.getElementById('usernameInput');
 
-        function getMyNick() {
-            return document.getElementById('username').value.trim() || 'Аноним';
-        }
-
-        function registerMe() {
-            socket.emit('register user', getMyNick());
-            // Перезапрашиваем историю для текущего активного чата после смены ника
-            socket.emit('get history', { target: currentChat, myNick: getMyNick() });
-        }
-
-        // Авторизация при старте
-        setTimeout(registerMe, 500);
-
-        // Обновление списка контактов в сайдбаре
-        socket.on('update users', function(usersArray) {
-            onlineUsers = usersArray;
-            const myNick = getMyNick();
+        // 1. Регистрация пользователя на сервере
+        function register() {
+            const username = usernameInput.value.trim();
+            if (!username) return alert('Введите ник!');
             
-            // Сохраняем элемент Глобального чата
-            const chatsList = document.getElementById('chats-list');
-            chatsList.innerHTML = `
-                <div class="chat-item ${currentChat === 'GLOBAL' ? 'active' : ''}" id="chat-GLOBAL" onclick="switchChat('GLOBAL')">
-                    <span class="chat-name">🌐 ОБЩИЙ ЧАТ</span>
-                </div>
-            `;
+            socket.emit('register user', username);
+            
+            // Активируем поля ввода сообщений после ввода ника
+            usernameInput.disabled = true;
+            document.getElementById('loginBtn').disabled = true;
+            document.getElementById('msgInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
 
-            // Добавляем остальных пользователей как приватные чаты
-            usersArray.forEach(user => {
+            // Сразу запрашиваем историю для общего чата
+            socket.emit('get history', { myNick: username, target: 'GLOBAL' });
+        }
+
+        // 2. Смена активного чата (клик по пользователю или Общему чату)
+        function switchChat(target) {
+            currentChat = target;
+            
+            // Меняем заголовок
+            document.getElementById('currentChatTitle').textContent = `Чат: ${target === 'GLOBAL' ? 'Общий' : target}`;
+            
+            // Подсвечиваем активный элемент в списке
+            document.querySelectorAll('#usersList li').forEach(li => li.classList.remove('active'));
+            if (target === 'GLOBAL') {
+                document.getElementById('global-chat-item').classList.add('active');
+            } else {
+                const activeLi = Array.from(document.querySelectorAll('#usersList li')).find(li => li.textContent === target);
+                if (activeLi) activeLi.classList.add('active');
+            }
+
+            // Очищаем окно сообщений и запрашиваем историю для нового чата
+            document.getElementById('messages').innerHTML = '';
+            const myNick = usernameInput.value.trim();
+            if (myNick) {
+                socket.emit('get history', { myNick: myNick, target: currentChat });
+            }
+        }
+
+        // 3. Обновление списка пользователей онлайн
+        socket.on('update users', (onlineUsers) => {
+            const list = document.getElementById('usersList');
+            const myNick = usernameInput.value.trim();
+            
+            // Сохраняем первый элемент (Общий чат)
+            list.innerHTML = `<li id="global-chat-item" class="${currentChat === 'GLOBAL' ? 'active' : ''}" onclick="switchChat('GLOBAL')">🌐 ОБЩИЙ ЧАТ</li>`;
+            
+            onlineUsers.forEach(user => {
+                // Не добавляем в список самого себя
                 if (user !== myNick) {
-                    const div = document.createElement('div');
-                    div.className = `chat-item ${currentChat === user ? 'active' : ''}`;
-                    div.id = `chat-${user}`;
-                    div.onclick = () => switchChat(user);
-                    div.innerHTML = `
-                        <span class="chat-name">👤 ${user}</span>
-                        <span class="online-tag">online</span>
-                    `;
-                    chatsList.appendChild(div);
+                    const li = document.createElement('li');
+                    li.textContent = user;
+                    if (currentChat === user) li.className = 'active';
+                    li.onclick = () => switchChat(user);
+                    list.appendChild(li);
                 }
             });
         });
 
-        // Переключение между комнатами/приватками
-        function switchChat(target) {
-            currentChat = target;
-            
-            // Смена активного класса в дизайне
-            document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
-            const activeEl = document.getElementById(`chat-${target}`);
-            if (activeEl) activeEl.classList.add('active');
-
-            // Смена заголовка чата
-            document.getElementById('current-chat-title').innerText = target === 'GLOBAL' ? '🌐 ОБЩИЙ ЧАТ' : `👤 ЛИЧКА: ${target}`;
-            
-            // Очищаем окно и запрашиваем историю из базы
-            document.getElementById('messages').innerHTML = '';
-            socket.emit('get history', { target: target, myNick: getMyNick() });
-        }
-
-        // Отрисовка истории из MongoDB Atlas
-        socket.on('load history', function(data) {
-            if (data.target !== currentChat) return; // Защита от наложения комнат
-            const messagesBox = document.getElementById('messages');
-            messagesBox.innerHTML = '';
-
-            if (Array.isArray(data.history)) {
-                data.history.forEach(msg => appendMessageElement(msg));
+        // 4. Загрузка истории сообщений с сервера
+        socket.on('load history', (data) => {
+            // Проверяем, что пришедшая история именно для того чата, который сейчас открыт
+            if (data.target === currentChat) {
+                document.getElementById('messages').innerHTML = ''; // на всякий случай чистим
+                data.history.forEach(msg => {
+                    renderMessage(msg, true); // true означает, что при истории скроллим плавно или без задержек
+                });
             }
         });
 
-        // Прием новых живых сообщений
-        socket.on('new message', function(msg) {
-            const myNick = getMyNick();
-            
-            // Проверяем, относится ли сообщение к текущему открытому экрану
-            if (currentChat === 'GLOBAL' && msg.to === 'GLOBAL') {
-                appendMessageElement(msg);
-            } else if (currentChat !== 'GLOBAL' && msg.to !== 'GLOBAL') {
-                // Если открыта личка с конкретным юзером и сообщение от него ИЛИ вы отправили ему
-                if ((msg.sender === currentChat && msg.to === myNick) || (msg.sender === myNick && msg.to === currentChat)) {
-                    appendMessageElement(msg);
-                }
-            }
+        // 5. Получение нового сообщения в реальном времени
+        socket.on('new message', (msg) => {
+            renderMessage(msg);
         });
 
-        function appendMessageElement(msg) {
-            const messagesBox = document.getElementById('messages');
-            const myNick = getMyNick();
+        // Исправленная безопасная функция рендеринга сообщений
+        function renderMessage(msg) {
+            const box = document.getElementById('messages');
+            const myNick = usernameInput.value.trim();
             
-            const div = document.createElement('div');
+            const isGlobalMatch = currentChat === 'GLOBAL' && msg.to === 'GLOBAL';
+            const isPrivateMatch = currentChat !== 'GLOBAL' && (msg.sender === currentChat || (msg.sender === myNick && msg.to === currentChat));
+
+            if (!isGlobalMatch && !isPrivateMatch) return; 
+
             const isMy = msg.sender === myNick;
-            
+            const div = document.createElement('div');
             div.className = `msg ${isMy ? 'my' : 'their'}`;
-            
-            // Показываем ник автора только в глобальном чате и если это не наше сообщение
-            const authorMarkup = (!isMy && currentChat === 'GLOBAL') ? `<div class="msg-author">${msg.sender}</div>` : '';
-            
-            div.innerHTML = `${authorMarkup}<div>${msg.text}</div>`;
-            
-            messagesBox.appendChild(div);
-            messagesBox.scrollTop = messagesBox.scrollHeight;
+
+            const authorDiv = document.createElement('div');
+            authorDiv.className = 'msg-author';
+            authorDiv.textContent = msg.sender;
+
+            const textSpan = document.createElement('span');
+            textSpan.textContent = msg.text; // Экранирование XSS
+
+            div.appendChild(authorDiv);
+            div.appendChild(textSpan);
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
         }
 
         function sendMsg() {
             const input = document.getElementById('msgInput');
             const text = input.value.trim();
-            if (!text) return;
+            const myNick = usernameInput.value.trim() || 'Аноним';
 
-            socket.emit('send message', {
-                to: currentChat,
-                text: text,
-                sender: getMyNick()
-            });
-
-            input.value = '';
+            if (text !== '') {
+                socket.emit('send message', {
+                    sender: myNick,
+                    to: currentChat,
+                    text: text
+                });
+                input.value = '';
+            }
         }
 
-        // Отправка по кнопке Enter
         document.getElementById('msgInput').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') sendMsg();
         });
