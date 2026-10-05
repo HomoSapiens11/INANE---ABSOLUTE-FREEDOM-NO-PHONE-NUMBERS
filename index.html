@@ -434,4 +434,16 @@
         });
     </script>
 </body>
-</html>
+</html><!-- ТВОЯ СИСТЕМА "ИНИЙ" -->
+<script>
+document.addEventListener('keydown', function(e) {
+    // Если нажал ESC (код 27) — МГНОВЕННОЕ ТАКТИЧЕСКОЕ ОТСТУПЛЕНИЕ
+    if (e.keyCode === 27) {
+        // Очищаем всё, чтоб не подкопались
+        localStorage.clear();
+        sessionStorage.clear();
+        // Прыгаем на ширму (Доки Питона — ты ж программист!)
+        window.location.href = "https://docs.python.org/3/";
+    }
+});
+</script>
