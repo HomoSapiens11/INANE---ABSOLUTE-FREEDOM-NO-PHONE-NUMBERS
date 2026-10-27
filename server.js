@@ -5,7 +5,7 @@ const io = require('socket.io')(http, {
     cors: { origin: "*" }
 });
 const mongoose = require('mongoose');
-const crypto = require('crypto'); // ВСТРОЕННЫЙ МОДУЛЬ, УСТАНАВЛИВАТЬ НЕ НАДО!
+const crypto = require('crypto');
 
 app.use(express.static(__dirname));
 
@@ -23,14 +23,12 @@ if (DB_URL) {
     process.exit(1);
 }
 
-// Схема юзера с безопасным хранением пароля
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true }
 });
 const User = mongoose.model('User', UserSchema);
 
-// Схема сообщений
 const MessageSchema = new mongoose.Schema({
     sender: String,
     to: String,
@@ -41,14 +39,12 @@ const Message = mongoose.model('Message', MessageSchema);
 
 const activeUsers = {}; // username -> socket.id
 
-// Функция для безопасного хеширования пароля встроенным crypto
 function hashPassword(password) {
     return crypto.createHash('sha256').update(password).digest('hex');
 }
 
 io.on('connection', (socket) => {
 
-    // Проверка ника: свободен, занят или нужен пароль
     socket.on('check nick', async (username) => {
         if (!username) return;
         try {
@@ -63,19 +59,17 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Регистрация нового или вход существующего
     socket.on('login or register', async (data) => {
         let { username, password } = data;
         if (!username || !password) return socket.emit('auth error', 'Заполните все поля!');
         
         username = username.trim();
-        const hashedPassword = hashPassword(password); // Хешируем пароль
+        const hashedPassword = hashPassword(password);
 
         try {
             let user = await User.findOne({ username: username });
 
             if (user) {
-                // Сверяем безопасные хэши
                 if (user.password === hashedPassword) {
                     socket.username = username;
                     activeUsers[username] = socket.id;
@@ -85,7 +79,6 @@ io.on('connection', (socket) => {
                     socket.emit('auth error', 'Неверный пароль для этого ника!');
                 }
             } else {
-                // Создаем нового пользователя с хэшем вместо чистого пароля
                 user = new User({ username, password: hashedPassword });
                 await user.save();
 
@@ -152,6 +145,18 @@ io.on('connection', (socket) => {
                 io.to(targetSocketId).emit('new message', msgData);
             }
             socket.emit('new message', msgData);
+        }
+    });
+
+    // ОБРАБОТЧИК КНОПКИ ВЫХОДА (LOGOUT)
+    socket.on('logout', () => {
+        if (socket.username) {
+            console.log(`👤 Юзер ${socket.username} вышел из системы через Log Out`);
+            if (activeUsers[socket.username] === socket.id) {
+                delete activeUsers[socket.username];
+            }
+            delete socket.username;
+            io.emit('update users', Object.keys(activeUsers));
         }
     });
 
