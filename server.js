@@ -39,54 +39,60 @@ const Message = mongoose.model('Message', MessageSchema);
 
 const activeUsers = {}; // username -> socket.id
 
+const MAX_TEXT_LENGTH = 2000;
+const MAX_NICK_LENGTH = 32;
+
 function hashPassword(password) {
     return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Ник должен быть непустой строкой разумной длины
+function cleanNick(value) {
+    if (typeof value !== 'string') return null;
+    const nick = value.trim();
+    if (!nick || nick.length > MAX_NICK_LENGTH) return null;
+    return nick;
 }
 
 io.on('connection', (socket) => {
 
     socket.on('check nick', async (username) => {
-        if (!username) return;
+        const nick = cleanNick(username);
+        if (!nick) return;
         try {
-            const userExists = await User.findOne({ username: username.trim() });
-            if (userExists) {
-                socket.emit('nick status', { username, status: 'exists' });
-            } else {
-                socket.emit('nick status', { username, status: 'new' });
-            }
+            const userExists = await User.findOne({ username: nick });
+            socket.emit('nick status', { username: nick, status: userExists ? 'exists' : 'new' });
         } catch (e) {
             console.error(e);
         }
     });
 
     socket.on('login or register', async (data) => {
-        let { username, password } = data;
+        if (!data || typeof data.password !== 'string') {
+            return socket.emit('auth error', 'Заполните все поля!');
+        }
+        const username = cleanNick(data.username);
+        const password = data.password.trim();
         if (!username || !password) return socket.emit('auth error', 'Заполните все поля!');
-        
-        username = username.trim();
+
         const hashedPassword = hashPassword(password);
 
         try {
             let user = await User.findOne({ username: username });
 
             if (user) {
-                if (user.password === hashedPassword) {
-                    socket.username = username;
-                    activeUsers[username] = socket.id;
-                    socket.emit('auth success', { username });
-                    io.emit('update users', Object.keys(activeUsers));
-                } else {
-                    socket.emit('auth error', 'Неверный пароль для этого ника!');
+                if (user.password !== hashedPassword) {
+                    return socket.emit('auth error', 'Неверный пароль для этого ника!');
                 }
             } else {
                 user = new User({ username, password: hashedPassword });
                 await user.save();
-
-                socket.username = username;
-                activeUsers[username] = socket.id;
-                socket.emit('auth success', { username });
-                io.emit('update users', Object.keys(activeUsers));
             }
+
+            socket.username = username;
+            activeUsers[username] = socket.id;
+            socket.emit('auth success', { username });
+            io.emit('update users', Object.keys(activeUsers));
         } catch (e) {
             console.error(e);
             socket.emit('auth error', 'Ошибка авторизации базы!');
@@ -94,12 +100,13 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get history', async (data) => {
-        const myNick = socket.username || data.myNick;
-        const target = data.target;
-        if (!myNick || !target) return;
+        // Только для авторизованных: ник берём из сокета, а не от клиента
+        const myNick = socket.username;
+        const target = data && data.target;
+        if (!myNick || typeof target !== 'string' || !target) return;
 
         try {
-            let query = {};
+            let query;
             if (target === 'GLOBAL') {
                 query = { to: 'GLOBAL' };
             } else {
@@ -111,7 +118,9 @@ io.on('connection', (socket) => {
                 };
             }
 
-            const history = await Message.find(query).sort({ timestamp: 1 }).limit(100);
+            // Берём последние 100 сообщений и разворачиваем в хронологический порядок
+            const history = await Message.find(query).sort({ timestamp: -1 }).limit(100);
+            history.reverse();
             socket.emit('load history', { target: target, history: history });
         } catch (e) {
             console.error(e);
@@ -119,22 +128,27 @@ io.on('connection', (socket) => {
     });
 
     socket.on('send message', async (data) => {
-        const senderName = socket.username || data.sender || 'Аноним';
-        if (!data.text || !data.to) return;
+        // Только для авторизованных: отправитель — всегда ник из сокета
+        const senderName = socket.username;
+        if (!senderName) return;
+        if (!data || typeof data.text !== 'string' || typeof data.to !== 'string' || !data.to) return;
+
+        const text = data.text.trim();
+        if (!text || text.length > MAX_TEXT_LENGTH) return;
 
         const msgData = {
             sender: senderName,
             to: data.to,
-            text: data.text,
+            text: text,
             timestamp: new Date()
         };
 
         try {
             const newMsg = new Message(msgData);
             await newMsg.save();
-        } catch(e) { 
-            console.error(e); 
-            return; 
+        } catch (e) {
+            console.error(e);
+            return;
         }
 
         if (data.to === 'GLOBAL') {
