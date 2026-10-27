@@ -88,6 +88,24 @@
             background: #00cca3;
         }
         
+        .logout-btn {
+            background: #ff3b30;
+            color: #fff;
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 12px;
+            transition: 0.2s;
+            box-shadow: 0 0 10px rgba(255, 59, 48, 0.2);
+        }
+        .logout-btn:hover {
+            background: #d32f2f;
+            box-shadow: 0 0 15px rgba(255, 59, 48, 0.4);
+        }
+        
         .chats-list { 
             flex: 1; 
             overflow-y: auto; 
@@ -241,7 +259,8 @@
                 <div id="auth-status">Введите ник и пароль</div>
                 <input type="text" id="username" placeholder="Ник" onchange="checkNick()">
                 <input type="password" id="password" placeholder="Пароль">
-                <button class="auth-btn" onclick="submitAuth()">Войти / Создать</button>
+                <button class="auth-btn" id="authBtn" onclick="submitAuth()">Войти / Создать</button>
+                <button class="logout-btn" id="logoutBtn" onclick="submitLogout()" style="display: none;">Выйти из аккаунта</button>
             </div>
             <div class="chats-list" id="chats-list">
                 <div class="chat-item active" onclick="switchChat('GLOBAL')">
@@ -275,6 +294,8 @@
         const statusDiv = document.getElementById('auth-status');
         const msgInput = document.getElementById('msgInput');
         const sendBtn = document.getElementById('sendBtn');
+        const authBtn = document.getElementById('authBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
 
         const savedNick = localStorage.getItem('inane_saved_nick');
         if (savedNick) {
@@ -293,6 +314,7 @@
         socket.on('connect', checkNick);
 
         socket.on('nick status', function(data) {
+            if (isAuthorized) return;
             if (data.status === 'exists') {
                 statusDiv.innerText = "Ник занят. Введите пароль.";
                 statusDiv.style.color = "#ffcc00";
@@ -312,138 +334,57 @@
                 return;
             }
 
-            socket.emit('login or register', { username, password });
-        }
-
-        socket.on('auth success', function(data) {
-            isAuthorized = true;
-            localStorage.setItem('inane_saved_nick', data.username);
-            statusDiv.innerText = "Успешный вход!";
-            statusDiv.style.color = "#00ffcc";
-            
-            msgInput.disabled = false;
-            sendBtn.disabled = false;
-            msgInput.placeholder = "Напишите сообщение...";
-
-            switchChat(currentChat);
         });
-
-        socket.on('auth error', function(message) {
-            isAuthorized = false;
-            statusDiv.innerText = message;
-            statusDiv.style.color = "#ff3b30";
-            msgInput.disabled = true;
-            sendBtn.disabled = true;
-            msgInput.placeholder = "Сначала авторизуйтесь...";
-        });
-
-        socket.on('update users', function(usersArray) {
-            onlineUsers = usersArray;
-            if (isAuthorized) renderChatsList();
-        });
-
-        function renderChatsList() {
-            const list = document.getElementById('chats-list');
-            const myNick = usernameInput.value.trim();
-            
-            let html = `<div class="chat-item ${currentChat === 'GLOBAL' ? 'active' : ''}" onclick="switchChat('GLOBAL')">
-                <span class="chat-name">🌐 ОБЩИЙ ЧАТ</span>
-            </div>`;
-
-            onlineUsers.forEach(user => {
-                if (user !== myNick) {
-                    const isActive = currentChat === user ? 'active' : '';
-                    html += `<div class="chat-item ${isActive}" onclick="switchChat('${user}')">
-                        <span class="chat-name">👤 ${user}</span>
-                        <span class="online-tag">ONLINE</span>
-                    </div>`;
-                }
-            });
-
-            list.innerHTML = html;
-        }
-
-        function switchChat(target) {
-            if (!isAuthorized) return;
-            currentChat = target;
-            document.getElementById('current-chat-title').innerText = target === 'GLOBAL' ? '🌐 ОБЩИЙ ЧАТ' : '👤 ЧАТ С ' + target;
-            document.getElementById('messages').innerHTML = '';
-            renderChatsList();
-
-            const myNick = usernameInput.value.trim();
-            socket.emit('get history', { myNick: myNick, target: target });
-        }
-
-        socket.on('load history', function(data) {
-            if (isAuthorized && data.target === currentChat && Array.isArray(data.history)) {
-                document.getElementById('messages').innerHTML = '';
-                data.history.forEach(msg => renderMessage(msg));
-            }
-        });
-
-        socket.on('new message', function(msg) {
-            if (!isAuthorized) return;
-            const myNick = usernameInput.value.trim();
-            if (msg.to === 'GLOBAL' && currentChat === 'GLOBAL') {
-                renderMessage(msg);
-            } else if ((msg.sender === currentChat && msg.to === myNick) || (msg.sender === myNick && msg.to === currentChat)) {
-                renderMessage(msg);
-            }
-        });
-
-        // Безопасный рендеринг: защита против XSS инъекций
-        function renderMessage(msg) {
-            const box = document.getElementById('messages');
-            const myNick = usernameInput.value.trim();
-            const isMy = msg.sender === myNick;
-
-            const div = document.createElement('div');
-            div.className = `msg ${isMy ? 'my' : 'their'}`;
-
-            const authorDiv = document.createElement('div');
-            authorDiv.className = 'msg-author';
-            authorDiv.textContent = msg.sender;
-
-            const textSpan = document.createElement('span');
-            textSpan.textContent = msg.text;
-
-            div.appendChild(authorDiv);
-            div.appendChild(textSpan);
-            box.appendChild(div);
-            box.scrollTop = box.scrollHeight;
-        }
-
-        function sendMsg() {
-            if (!isAuthorized) return;
-            const input = document.getElementById('msgInput');
-            const text = input.value.trim();
-            const myNick = usernameInput.value.trim();
-
-            if (text !== '') {
-                socket.emit('send message', {
-                    sender: myNick,
-                    to: currentChat,
-                    text: text
-                });
-                input.value = '';
-            }
-        }
-
-        document.getElementById('msgInput').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') sendMsg();
-        });
-    </script>
-</body>
-</html><!-- ТВОЯ СИСТЕМА "ИНИЙ" -->
-<script>
-document.addEventListener('keydown', function(e) {
-    // Если нажал ESC (код 27) — МГНОВЕННОЕ ТАКТИЧЕСКОЕ ОТСТУПЛЕНИЕ
-    if (e.keyCode === 27) {
-        // Очищаем всё, чтоб не подкопались
-        localStorage.clear();
-        sessionStorage.clear();
-        // Прыгаем на ширму (Доки Питона — ты ж программист!)
-        window.location.href = "https://docs.python.org/3/";
-    }
+socket.on('new message', function(msg) {
+if (!isAuthorized) return;
+const myNick = usernameInput.value.trim();
+if (msg.to === 'GLOBAL' && currentChat === 'GLOBAL') {
+renderMessage(msg);
+} else if ((msg.sender === currentChat && msg.to === myNick) || (msg.sender === myNick && msg.to === currentChat)) {
+renderMessage(msg);
+}
 });
-</script>
+function renderMessage(msg) {
+const box = document.getElementById('messages');
+const myNick = usernameInput.value.trim();
+const isMy = msg.sender === myNick;
+const div = document.createElement('div');
+div.className = msg ${isMy ? 'my' : 'their'};
+const authorDiv = document.createElement('div');
+authorDiv.className = 'msg-author';
+authorDiv.textContent = msg.sender;
+const textSpan = document.createElement('span');
+textSpan.textContent = msg.text;
+div.appendChild(authorDiv);
+div.appendChild(textSpan);
+box.appendChild(div);
+box.scrollTop = box.scrollHeight;
+}
+function sendMsg() {
+if (!isAuthorized) return;
+const input = document.getElementById('msgInput');
+const text = input.value.trim();
+const myNick = usernameInput.value.trim();
+if (text !== '') {
+socket.emit('send message', {
+sender: myNick,
+to: currentChat,
+text: text
+});
+input.value = '';
+}
+}
+document.getElementById('msgInput').addEventListener('keypress', function (e) {
+if (e.key === 'Enter') sendMsg();
+});
+
+
+
+
+document.addEventListener('keydown', function(e) {
+if (e.keyCode === 27) {
+localStorage.clear();
+sessionStorage.clear();
+window.location.href = "python.org";
+}
+});
